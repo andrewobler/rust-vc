@@ -13,15 +13,15 @@ pub fn create_default_input_stream(
 ) -> Result<cpal::Stream, CreateAudioStreamError> {
     let host = cpal::default_host();
 
-    let Some(device) = host.default_input_device() else {
-        return Err(CreateAudioStreamError::NoDefaultDevice);
-    };
+    let device = host
+        .default_input_device()
+        .ok_or(CreateAudioStreamError::NoDefaultDevice)?;
 
     let mut supported_configs = device.supported_input_configs()?;
 
-    let Some(supported_config) = supported_configs.next() else {
-        return Err(CreateAudioStreamError::NoSupportedConfigs);
-    };
+    let supported_config = supported_configs
+        .next()
+        .ok_or(CreateAudioStreamError::NoSupportedConfigs)?;
 
     let config = supported_config.with_max_sample_rate().into();
 
@@ -48,14 +48,14 @@ pub fn create_default_output_stream(
 ) -> Result<cpal::Stream, CreateAudioStreamError> {
     let host = cpal::default_host();
 
-    let Some(device) = host.default_output_device() else {
-        return Err(CreateAudioStreamError::NoDefaultDevice);
-    };
+    let device = host
+        .default_output_device()
+        .ok_or(CreateAudioStreamError::NoDefaultDevice)?;
 
     let mut supported_configs = device.supported_output_configs()?;
-    let Some(supported_config) = supported_configs.next() else {
-        return Err(CreateAudioStreamError::NoSupportedConfigs);
-    };
+    let supported_config = supported_configs
+        .next()
+        .ok_or(CreateAudioStreamError::NoSupportedConfigs)?;
 
     let config = supported_config.with_max_sample_rate().into();
 
@@ -68,12 +68,12 @@ pub fn create_default_output_stream(
         match source.try_recv() {
             Ok(vec) => {
                 let limit = min(data.len(), vec.len());
-                let (filled, empty) = data.split_at_mut(limit);
-                for (dst, src) in filled.iter_mut().zip(vec.iter()) {
+                let (to_fill, rest) = data.split_at_mut(limit);
+                for (dst, src) in to_fill.iter_mut().zip(vec.iter()) {
                     *dst = *src;
                 }
 
-                write_silence(empty);
+                write_silence(rest);
             }
             Err(mpsc::TryRecvError::Empty) => {
                 warn!("No available input in source");

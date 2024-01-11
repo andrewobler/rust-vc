@@ -6,8 +6,10 @@ mod errors;
 use std::{io, sync::mpsc};
 
 use cpal::traits::StreamTrait;
+use simple_logger::SimpleLogger;
 
 fn main() {
+    SimpleLogger::new().init().unwrap();
     let (tx, rx) = mpsc::channel::<Vec<u8>>();
 
     let input_stream = audio::create_default_input_stream(tx).unwrap();

@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 cpal = "0.15.2"
 log = "0.4.20"
+simple_logger = "4.3.3"
