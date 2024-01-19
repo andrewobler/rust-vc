@@ -1,9 +1,14 @@
 use std::{
     io,
     net::UdpSocket,
-    sync::{mpsc, Arc},
+    sync::{
+        mpsc::{Receiver, Sender},
+        Arc,
+    },
     thread::{self, JoinHandle},
 };
+
+use dasp_sample::Sample;
 
 use log::{error, warn};
 
@@ -26,7 +31,7 @@ impl AudioSocket {
         self.socket.connect(addr)
     }
 
-    pub fn spawn_send_thread(&self, audio_rx: mpsc::Receiver<Vec<u8>>) -> JoinHandle<()> {
+    pub fn spawn_send_thread(&self, audio_rx: Receiver<Vec<u8>>) -> JoinHandle<()> {
         let socket = Arc::clone(&self.socket);
 
         thread::spawn(move || {
@@ -47,11 +52,11 @@ impl AudioSocket {
         })
     }
 
-    pub fn spawn_recv_thread(&self, audio_tx: mpsc::Sender<Vec<u8>>) -> JoinHandle<()> {
+    pub fn spawn_recv_thread(&self, audio_tx: Sender<Vec<u8>>) -> JoinHandle<()> {
         let socket = Arc::clone(&self.socket);
 
         thread::spawn(move || {
-            let mut buf: Vec<u8> = vec![cpal::Sample::EQUILIBRIUM; RECV_BUF_SIZE];
+            let mut buf: Vec<u8> = vec![Sample::EQUILIBRIUM; RECV_BUF_SIZE];
 
             loop {
                 match socket.recv(buf.as_mut_slice()) {
