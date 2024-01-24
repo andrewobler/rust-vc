@@ -197,6 +197,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dasp_ring_buffer"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07d79e19b89618a543c4adec9c5a347fe378a19041699b3278e616e387511ea1"
+
+[[package]]
 name = "dasp_sample"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -609,6 +615,7 @@ name = "rust-vc"
 version = "0.1.0"
 dependencies = [
  "cpal",
+ "dasp_ring_buffer",
  "dasp_sample",
  "log",
  "simple_logger",

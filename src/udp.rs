@@ -1,19 +1,15 @@
 use std::{
     io,
     net::UdpSocket,
-    sync::{
-        mpsc::{Receiver, Sender},
-        Arc,
-    },
+    sync::Arc,
     thread::{self, JoinHandle},
 };
 
 use dasp_sample::Sample;
 
-use log::{error, warn};
+use log::error;
 
-// TODO: definitely change this
-const RECV_BUF_SIZE: usize = 65536;
+use crate::{constants::UDP_BUF_SIZE, sample_ring_buffer::BufferHandle, util::write_silence};
 
 pub struct AudioSocket {
     socket: Arc<UdpSocket>,
@@ -31,48 +27,47 @@ impl AudioSocket {
         self.socket.connect(addr)
     }
 
-    pub fn spawn_send_thread(&self, audio_rx: Receiver<Vec<u8>>) -> JoinHandle<()> {
+    pub fn spawn_send_thread(&self, audio_src: BufferHandle) -> JoinHandle<()> {
         let socket = Arc::clone(&self.socket);
 
         thread::spawn(move || {
+            let mut buf = [Sample::EQUILIBRIUM; UDP_BUF_SIZE];
+
             loop {
-                let Ok(packet) = audio_rx.recv() else {
-                    error!("Audio RX disconnected, stopping send loop");
-                    break;
+                match audio_src.lock() {
+                    Ok(mut locked) => {
+                        let num_written = locked.pop_into(buf.iter_mut());
+
+                        if let Err(e) = socket.send(&buf[..num_written]) {
+                            error!("Error sending {num_written} samples: {e}");
+                        }
+
+                        write_silence(&mut buf[..num_written]);
+                    }
+                    Err(e) => error!("Unable to lock audio_src: {e}"),
                 };
-
-                // TODO: handle partial sends?
-                // TODO: split into RECV_BUF_SIZE chunks if necessary
-                if let Err(e) = socket.send(packet.as_slice()) {
-                    error!("Failed to send packet of size {}: {}", packet.len(), e);
-                }
             }
-
-            warn!("Send thread has stopped");
         })
     }
 
-    pub fn spawn_recv_thread(&self, audio_tx: Sender<Vec<u8>>) -> JoinHandle<()> {
+    pub fn spawn_recv_thread(&self, audio_sink: BufferHandle) -> JoinHandle<()> {
         let socket = Arc::clone(&self.socket);
 
         thread::spawn(move || {
-            let mut buf: Vec<u8> = vec![Sample::EQUILIBRIUM; RECV_BUF_SIZE];
+            let mut buf = [Sample::EQUILIBRIUM; UDP_BUF_SIZE];
 
             loop {
-                match socket.recv(buf.as_mut_slice()) {
-                    Ok(num_samples) => {
-                        let packet = buf[..num_samples].to_vec();
-                        // TODO: revise to hit this case outside of socket.recv()
-                        if audio_tx.send(packet).is_err() {
-                            error!("Audio TX disconnected, stopping recv loop");
-                            break;
+                match socket.recv(&mut buf) {
+                    Ok(num_recved) => match audio_sink.lock() {
+                        Ok(mut locked) => {
+                            locked.push_all(buf[..num_recved].iter());
+                            write_silence(&mut buf[..num_recved]);
                         }
-                    }
+                        Err(e) => error!("Unable to lock audio_sink: {e}"),
+                    },
                     Err(e) => error!("Failed to receive packet: {e}"),
                 }
             }
-
-            warn!("Recv thread has stopped");
         })
     }
 }

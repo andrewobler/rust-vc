@@ -1,21 +1,16 @@
-use std::{
-    cmp::min,
-    sync::mpsc::{Receiver, Sender, TryRecvError},
-};
-
 use cpal::{
     self,
     traits::{DeviceTrait, HostTrait},
     Device, SampleFormat, SizedSample, Stream, StreamConfig,
 };
-use dasp_sample::{FromSample, Sample, ToSample};
+use dasp_sample::{FromSample, ToSample};
 use log::{error, warn};
 
-use crate::errors::CreateAudioStreamError;
+use crate::{
+    errors::CreateAudioStreamError, sample_ring_buffer::BufferHandle, util::write_silence,
+};
 
-pub fn create_default_input_stream(
-    sink: Sender<Vec<u8>>,
-) -> Result<Stream, CreateAudioStreamError> {
+pub fn create_default_input_stream(sink: BufferHandle) -> Result<Stream, CreateAudioStreamError> {
     let host = cpal::default_host();
 
     let device = host
@@ -40,7 +35,7 @@ pub fn create_default_input_stream(
 }
 
 pub fn create_default_output_stream(
-    source: Receiver<Vec<u8>>,
+    source: BufferHandle,
 ) -> Result<Stream, CreateAudioStreamError> {
     let host = cpal::default_host();
 
@@ -65,7 +60,7 @@ pub fn create_default_output_stream(
 }
 
 fn build_input_stream<T: SizedSample + ToSample<u8>>(
-    sink: Sender<Vec<u8>>,
+    sink: BufferHandle,
     device: &Device,
     config: &StreamConfig,
 ) -> Result<Stream, CreateAudioStreamError> {
@@ -75,11 +70,12 @@ fn build_input_stream<T: SizedSample + ToSample<u8>>(
             return;
         }
 
-        let normalized = data.iter().map(|value| value.to_sample()).collect();
-
-        if let Err(e) = sink.send(normalized) {
-            error!("Failed to send input packet of size {}", e.0.len());
-        }
+        match sink.lock() {
+            Ok(mut locked) => {
+                locked.push_all_with_transform(data.iter(), |value| value.to_sample());
+            }
+            Err(e) => error!("Failed to push input packet of size {}: {}", data.len(), e),
+        };
     };
 
     let err_fn = |err| error!("Error reading from input stream: {err}");
@@ -88,7 +84,7 @@ fn build_input_stream<T: SizedSample + ToSample<u8>>(
 }
 
 fn build_output_stream<T: SizedSample + FromSample<u8>>(
-    source: Receiver<Vec<u8>>,
+    source: BufferHandle,
     device: &Device,
     config: &StreamConfig,
 ) -> Result<Stream, CreateAudioStreamError> {
@@ -98,31 +94,17 @@ fn build_output_stream<T: SizedSample + FromSample<u8>>(
             return;
         }
 
-        match source.try_recv() {
-            Ok(vec) => {
-                let limit = min(data.len(), vec.len());
-                let (to_fill, rest) = data.split_at_mut(limit);
-                for (dst, src) in to_fill.iter_mut().zip(vec.iter()) {
-                    *dst = T::from_sample(*src);
-                }
+        write_silence(data);
 
-                write_silence(rest);
+        match source.lock() {
+            Ok(mut locked) => {
+                locked.pop_into_with_transform(data.iter_mut(), |sample| T::from_sample(*sample));
             }
-            Err(TryRecvError::Empty) => {
-                warn!("No available input in source");
-                write_silence(data);
-            }
-            Err(TryRecvError::Disconnected) => error!("Input source disconnected"),
+            Err(e) => error!("Error reading output packet: {e}"),
         };
     };
 
     let err_fn = |err| error!("Error writing to output stream: {err}");
 
     Ok(device.build_output_stream(config, data_fn, err_fn, None)?)
-}
-
-fn write_silence<T: SizedSample>(data: &mut [T]) {
-    for sample in data.iter_mut() {
-        *sample = Sample::EQUILIBRIUM;
-    }
 }
