@@ -31,7 +31,7 @@ impl AudioSocket {
         let socket = Arc::clone(&self.socket);
 
         thread::spawn(move || {
-            let mut buf = [Sample::EQUILIBRIUM; UDP_BUF_SIZE];
+            let mut buf = vec![Sample::EQUILIBRIUM; UDP_BUF_SIZE].into_boxed_slice();
 
             loop {
                 match audio_src.lock() {
@@ -54,7 +54,7 @@ impl AudioSocket {
         let socket = Arc::clone(&self.socket);
 
         thread::spawn(move || {
-            let mut buf = [Sample::EQUILIBRIUM; UDP_BUF_SIZE];
+            let mut buf = vec![Sample::EQUILIBRIUM; UDP_BUF_SIZE].into_boxed_slice();
 
             loop {
                 match socket.recv(&mut buf) {
